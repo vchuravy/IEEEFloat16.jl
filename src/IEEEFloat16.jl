@@ -11,7 +11,6 @@ import Core.Intrinsics.llvmcall
 ## floatfuncs
 Base.signbit(x::Float16) = signbit(bitcast(Int16, x))
 Base.maxintfloat(::Type{Float16}) = Float16(2048f0)
-# TODO: fma
 
 ## hashing2
 # TODO
@@ -147,6 +146,32 @@ end
     call_function(f, Float16, Tuple{Float16}, :((x,)))
 end
 
+@generated function Base.fma(x::Float16, y::Float16, z::Float16)
+    T_i16 = convert(LLVMType, Int16)
+    T_f16 = LLVM.HalfType(JuliaContext())
+
+    f, ft = create_function(T_i16, [T_i16, T_i16, T_i16])
+    mod = LLVM.parent(f)
+    intrinsic_typ = LLVM.FunctionType(T_f16, [T_f16, T_f16, T_f16])
+    intrinsic = LLVM.Function(mod, "llvm.fma.f16", intrinsic_typ)
+
+    Builder(JuliaContext()) do builder
+        entry = BasicBlock(f, "entry", JuliaContext())
+        position!(builder, entry)
+        
+        x = bitcast!(builder, parameters(f)[1], T_f16)
+        y = bitcast!(builder, parameters(f)[2], T_f16)
+        z = bitcast!(builder, parameters(f)[3], T_f16)
+        val = call!(builder, intrinsic, [x, y, z])
+        retval = bitcast!(builder, val, T_i16)
+
+        ret!(builder, retval)
+    end
+
+    call_function(f, Float16, Tuple{Float16, Float16, Float16}, :((x,y,z)))
+end
+
+# TODO check that power_by_sqauring is efficent
 # TODO check that power_by_sqauring is efficent
 @inline Base.literal_pow(::typeof(^), x::Float16, ::Val{0}) = one(x)
 @inline Base.literal_pow(::typeof(^), x::Float16, ::Val{1}) = x
